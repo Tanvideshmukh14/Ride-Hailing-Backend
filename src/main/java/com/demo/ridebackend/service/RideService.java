@@ -1,5 +1,7 @@
 package com.demo.ridebackend.service;
-
+import com.demo.ridebackend.entity.Payment;
+import com.demo.ridebackend.enums.PaymentStatus;
+import com.demo.ridebackend.repository.PaymentRepository;
 import com.demo.ridebackend.dto.request.RideRequestDTO;
 import com.demo.ridebackend.dto.response.RideResponse;
 import com.demo.ridebackend.entity.Ride;
@@ -19,7 +21,7 @@ import java.util.List;
 @Service
 @RequiredArgsConstructor
 public class RideService {
-
+    private final PaymentRepository paymentRepository;
     private final RideRepository rideRepository;
     private final UserRepository userRepository;
 
@@ -76,8 +78,22 @@ public class RideService {
 
     public List<RideResponse> getAvailableRides() {
 
+        User driver = getLoggedInUser();
+
+        if (driver.getRole() != Role.DRIVER) {
+            throw new RuntimeException("Only drivers can view available rides.");
+        }
+
+        double radius = 5.0; // km
+
         return rideRepository.findByStatus(RideStatus.REQUESTED)
                 .stream()
+                .filter(ride -> calculateDistance(
+                        driver.getLatitude(),
+                        driver.getLongitude(),
+                        ride.getPickupLatitude(),
+                        ride.getPickupLongitude()
+                ) <= radius)
                 .map(this::mapToRideResponse)
                 .toList();
     }
@@ -93,33 +109,84 @@ public class RideService {
         Ride ride = rideRepository.findById(rideId)
                 .orElseThrow(() -> new RuntimeException("Ride not found"));
 
+        if (ride.getStatus() != RideStatus.REQUESTED) {
+            throw new RuntimeException(
+                    "Only requested rides can be accepted.");
+        }
+
         ride.setDriver(driver);
         ride.setStatus(RideStatus.ACCEPTED);
         ride.setAcceptedTime(LocalDateTime.now());
 
-        return mapToRideResponse(rideRepository.save(ride));
+        ride = rideRepository.save(ride);
+
+        return mapToRideResponse(ride);
     }
 
     public RideResponse startRide(Long rideId) {
 
+        User driver = getLoggedInUser();
+
+        if (driver.getRole() != Role.DRIVER) {
+            throw new RuntimeException("Only drivers can start rides.");
+        }
+
         Ride ride = rideRepository.findById(rideId)
                 .orElseThrow(() -> new RuntimeException("Ride not found"));
+
+        if (ride.getStatus() != RideStatus.ACCEPTED) {
+            throw new RuntimeException("Only accepted rides can be started.");
+        }
+
+        if (!ride.getDriver().getId().equals(driver.getId())) {
+            throw new RuntimeException("Only the assigned driver can start this ride.");
+        }
 
         ride.setStatus(RideStatus.ONGOING);
         ride.setStartedTime(LocalDateTime.now());
 
-        return mapToRideResponse(rideRepository.save(ride));
+        ride = rideRepository.save(ride);
+
+        return mapToRideResponse(ride);
     }
 
     public RideResponse completeRide(Long rideId) {
 
+        User driver = getLoggedInUser();
+
+        if (driver.getRole() != Role.DRIVER) {
+            throw new RuntimeException("Only drivers can complete rides.");
+        }
+
         Ride ride = rideRepository.findById(rideId)
                 .orElseThrow(() -> new RuntimeException("Ride not found"));
+
+        if (ride.getStatus() != RideStatus.ONGOING) {
+            throw new RuntimeException("Only ongoing rides can be completed.");
+        }
+
+        if (!ride.getDriver().getId().equals(driver.getId())) {
+            throw new RuntimeException("Only the assigned driver can complete this ride.");
+        }
 
         ride.setStatus(RideStatus.COMPLETED);
         ride.setCompletedTime(LocalDateTime.now());
 
-        return mapToRideResponse(rideRepository.save(ride));
+        double fare = ride.getDistance() * 20;
+        ride.setFare(fare);
+
+        ride = rideRepository.save(ride);
+
+        Payment payment = Payment.builder()
+                .amount(fare)
+                .paymentStatus(PaymentStatus.PENDING)
+                .paymentTime(LocalDateTime.now())
+                .ride(ride)
+                .build();
+
+        paymentRepository.save(payment);
+
+        return mapToRideResponse(ride);
     }
 
     private RideResponse mapToRideResponse(Ride ride) {
