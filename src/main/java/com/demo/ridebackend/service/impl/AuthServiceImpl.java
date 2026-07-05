@@ -42,6 +42,16 @@ public class AuthServiceImpl implements AuthService {
                 .latitude(request.getLatitude())
                 .longitude(request.getLongitude())
                 .available(true)
+
+                // ============================================================
+                // START OF VERSION 5 CHANGES: DRIVER PREFERENCES
+                // ============================================================
+                .gender(request.getGender()) // Maps driver's gender for matching
+                .vehicleType(request.getVehicleType()) // Maps vehicle category (e.g. SEDAN)
+                // ============================================================
+                // END OF VERSION 5 CHANGES
+                // ============================================================
+
                 .build();
 
         userRepository.save(user);
@@ -74,5 +84,4 @@ public class AuthServiceImpl implements AuthService {
                 .message("Login Successful")
                 .build();
     }
-
 }

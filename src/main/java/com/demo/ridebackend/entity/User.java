@@ -1,6 +1,7 @@
 package com.demo.ridebackend.entity;
 
 import com.demo.ridebackend.enums.Role;
+import com.demo.ridebackend.enums.Gender; // Import the new enum
 import jakarta.persistence.*;
 import lombok.*;
 
@@ -35,12 +36,19 @@ public class User {
     @Column(nullable = false)
     private Role role;
 
+    // --- Added for Gender Matching Support ---
+    @Enumerated(EnumType.STRING)
+    private Gender gender;
+
     private Double latitude;
 
     private Double longitude;
 
     @Builder.Default
     private Boolean available = true;
+
+    // --- Added for Version 5: Feature of Preference ---
+    private String vehicleType; // e.g., "SEDAN", "SUV"
 
     @OneToMany(mappedBy = "rider")
     private List<Ride> riderRides;
