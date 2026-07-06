@@ -11,6 +11,7 @@ import com.demo.ridebackend.enums.RideStatus;
 import com.demo.ridebackend.repository.RideRepository;
 import com.demo.ridebackend.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
@@ -18,6 +19,7 @@ import org.springframework.stereotype.Service;
 import java.time.LocalDateTime;
 import java.util.List;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class RideService {
@@ -26,14 +28,13 @@ public class RideService {
     private final UserRepository userRepository;
 
     private User getLoggedInUser() {
-        Authentication authentication =
-                SecurityContextHolder.getContext().getAuthentication();
-
+        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
         String email = authentication.getName();
 
         return userRepository.findByEmail(email)
                 .orElseThrow(() -> new RuntimeException("User not found"));
     }
+
     public RideResponse requestRide(RideRequestDTO request) {
 
         User rider = getLoggedInUser();
@@ -59,19 +60,35 @@ public class RideService {
                 .requestedTime(LocalDateTime.now())
                 .status(RideStatus.REQUESTED)
                 .rider(rider)
+                .requestedVehicleType(request.getRequestedVehicleType())
+                .preferredDriverGender(request.getPreferredDriverGender())
                 .build();
 
         ride = rideRepository.save(ride);
+
+        // FIX: Added Role.DRIVER parameter to match the updated repository method signature
+        List<User> nearbyDrivers = userRepository.findDrivers(
+                ride.getPickupLatitude(),
+                ride.getPickupLongitude(),
+                ride.getRequestedVehicleType(),
+                ride.getPreferredDriverGender(),
+                5.0,
+                Role.DRIVER
+        );
+
+        log.info("--- [NOTIFICATION] --- Sent ride request notification to {} nearby drivers matching preferences.", nearbyDrivers.size());
 
         return mapToRideResponse(ride);
     }
 
     public List<RideResponse> getMyRides() {
+        User user = getLoggedInUser();
 
-        User rider = getLoggedInUser();
+        List<Ride> rides = (user.getRole() == Role.DRIVER)
+                ? rideRepository.findByDriver(user)
+                : rideRepository.findByRider(user);
 
-        return rideRepository.findByRider(rider)
-                .stream()
+        return rides.stream()
                 .map(this::mapToRideResponse)
                 .toList();
     }
@@ -110,6 +127,13 @@ public class RideService {
                 .orElseThrow(() -> new RuntimeException("Ride not found"));
 
         if (ride.getStatus() != RideStatus.REQUESTED) {
+            throw new RuntimeException("Ride cannot be accepted. Current status: " + ride.getStatus());
+        }
+
+        driver.setAvailable(false);
+        userRepository.save(driver);
+
+        if (ride.getStatus() != RideStatus.REQUESTED) {
             throw new RuntimeException(
                     "Only requested rides can be accepted.");
         }
@@ -118,9 +142,9 @@ public class RideService {
         ride.setStatus(RideStatus.ACCEPTED);
         ride.setAcceptedTime(LocalDateTime.now());
 
-        ride = rideRepository.save(ride);
+        log.info("--- [NOTIFICATION] --- Ride status updated: ACCEPTED. Notifying Rider: {}", ride.getRider().getName());
 
-        return mapToRideResponse(ride);
+        return mapToRideResponse(rideRepository.save(ride));
     }
 
     public RideResponse startRide(Long rideId) {
@@ -135,6 +159,10 @@ public class RideService {
                 .orElseThrow(() -> new RuntimeException("Ride not found"));
 
         if (ride.getStatus() != RideStatus.ACCEPTED) {
+            throw new RuntimeException("Ride cannot be started. Must be ACCEPTED first.");
+        }
+
+        if (ride.getStatus() != RideStatus.ACCEPTED) {
             throw new RuntimeException("Only accepted rides can be started.");
         }
 
@@ -145,16 +173,18 @@ public class RideService {
         ride.setStatus(RideStatus.ONGOING);
         ride.setStartedTime(LocalDateTime.now());
 
+        log.info("--- [NOTIFICATION] --- Ride status updated: ONGOING. Trip started.");
+
         ride = rideRepository.save(ride);
 
-        return mapToRideResponse(ride);
+        return mapToRideResponse(rideRepository.save(ride));
     }
 
     public RideResponse completeRide(Long rideId) {
 
-        User driver = getLoggedInUser();
+        User loggedInDriver = getLoggedInUser();
 
-        if (driver.getRole() != Role.DRIVER) {
+        if (loggedInDriver.getRole() != Role.DRIVER) {
             throw new RuntimeException("Only drivers can complete rides.");
         }
 
@@ -165,18 +195,27 @@ public class RideService {
             throw new RuntimeException("Only ongoing rides can be completed.");
         }
 
-        if (!ride.getDriver().getId().equals(driver.getId())) {
+        if (ride.getDriver() == null ||
+                !ride.getDriver().getId().equals(loggedInDriver.getId())) {
             throw new RuntimeException("Only the assigned driver can complete this ride.");
         }
 
+        // Complete the ride
         ride.setStatus(RideStatus.COMPLETED);
         ride.setCompletedTime(LocalDateTime.now());
 
+        // Calculate fare
         double fare = ride.getDistance() * 20;
         ride.setFare(fare);
 
+        // Make driver available again
+        loggedInDriver.setAvailable(true);
+        userRepository.save(loggedInDriver);
+
+        // Save ride
         ride = rideRepository.save(ride);
 
+        // Create payment entry
         Payment payment = Payment.builder()
                 .amount(fare)
                 .paymentStatus(PaymentStatus.PENDING)
@@ -186,6 +225,8 @@ public class RideService {
 
         paymentRepository.save(payment);
 
+        log.info("--- [NOTIFICATION] --- Ride status updated: COMPLETED. Total Fare: {}", fare);
+
         return mapToRideResponse(ride);
     }
 
@@ -194,20 +235,15 @@ public class RideService {
         return RideResponse.builder()
                 .rideId(ride.getId())
                 .riderName(ride.getRider().getName())
-                .driverName(
-                        ride.getDriver() != null
-                                ? ride.getDriver().getName()
-                                : null
-                )
+                .driverName(ride.getDriver() != null ? ride.getDriver().getName() : null)
                 .status(ride.getStatus())
                 .fare(ride.getFare())
                 .build();
     }
-    private double calculateDistance(double lat1, double lon1,
-                                     double lat2, double lon2) {
 
-        final int EARTH_RADIUS = 6371; // km
 
+    private double calculateDistance(double lat1, double lon1, double lat2, double lon2) {
+        final int EARTH_RADIUS = 6371;
         double dLat = Math.toRadians(lat2 - lat1);
         double dLon = Math.toRadians(lon2 - lon1);
 

@@ -1,6 +1,7 @@
 package com.demo.ridebackend.entity;
 
 import com.demo.ridebackend.enums.RideStatus;
+import com.demo.ridebackend.enums.Gender; // Import the Gender enum for preferences
 import jakarta.persistence.*;
 import lombok.*;
 
@@ -52,4 +53,13 @@ public class Ride {
 
     @OneToOne(mappedBy = "ride", cascade = CascadeType.ALL)
     private Payment payment;
+
+    // --- Added for Version 5: Feature of Preference ---
+
+    @Column(name = "requested_vehicle_type")
+    private String requestedVehicleType; // e.g., "SEDAN", "SUV", "BIKE"
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "preferred_driver_gender")
+    private Gender preferredDriverGender; // Optional filter if rider requests a specific gender driver
 }
