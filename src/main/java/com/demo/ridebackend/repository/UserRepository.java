@@ -13,11 +13,13 @@ import java.util.Optional;
 public interface UserRepository extends JpaRepository<User, Long> {
 
     Optional<User> findByEmail(String email);
+
     boolean existsByEmail(String email);
+
     boolean existsByPhone(String phone);
+
     List<User> findByRole(Role role);
 
-    // FIX: Replaced hardcoded Role.DRIVER with a dynamic parameter to prevent parsing crashes
     @Query("SELECT u FROM User u WHERE u.role = :role AND u.available = true " +
             "AND (:vType IS NULL OR u.vehicleType = :vType) " +
             "AND (:gender IS NULL OR u.gender = :gender) " +
@@ -28,5 +30,6 @@ public interface UserRepository extends JpaRepository<User, Long> {
                            @Param("vType") String vType,
                            @Param("gender") Gender gender,
                            @Param("rad") Double rad,
-                           @Param("role") Role role); // Added Role param cleanly here
+                           @Param("role") Role role);
+
 }

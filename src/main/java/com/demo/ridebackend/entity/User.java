@@ -1,7 +1,7 @@
 package com.demo.ridebackend.entity;
 
 import com.demo.ridebackend.enums.Role;
-import com.demo.ridebackend.enums.Gender; // Import the new enum
+import com.demo.ridebackend.enums.Gender;
 import jakarta.persistence.*;
 import lombok.*;
 
@@ -36,10 +36,6 @@ public class User {
     @Column(nullable = false)
     private Role role;
 
-    // --- Added for Gender Matching Support ---
-    @Enumerated(EnumType.STRING)
-    private Gender gender;
-
     private Double latitude;
 
     private Double longitude;
@@ -47,7 +43,11 @@ public class User {
     @Builder.Default
     private Boolean available = true;
 
-    // --- Added for Version 5: Feature of Preference ---
+    // ---- Driver Matching Preferences ----
+
+    @Enumerated(EnumType.STRING)
+    private Gender gender;
+
     private String vehicleType; // e.g., "SEDAN", "SUV"
 
     @OneToMany(mappedBy = "rider")
@@ -55,4 +55,15 @@ public class User {
 
     @OneToMany(mappedBy = "driver")
     private List<Ride> driverRides;
+
+    // ---- Reward & Loyalty Program (V6 - Feature 3) ----
+
+    @Builder.Default
+    @Column(name = "reward_points", nullable = false)
+    private Integer rewardPoints = 0;
+
+    // ---- SOS Emergency (V7 - Feature 1) ----
+
+    @Column(name = "emergency_contact_phone")
+    private String emergencyContactPhone;
 }

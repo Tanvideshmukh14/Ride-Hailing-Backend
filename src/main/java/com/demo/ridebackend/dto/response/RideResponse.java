@@ -20,4 +20,8 @@ public class RideResponse {
 
     private Double fare;
 
+    private String message;
+
+    private Integer rewardPointsEarned;
+
 }

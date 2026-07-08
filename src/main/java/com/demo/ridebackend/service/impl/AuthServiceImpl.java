@@ -4,6 +4,7 @@ import com.demo.ridebackend.dto.request.LoginRequest;
 import com.demo.ridebackend.dto.request.RegisterRequest;
 import com.demo.ridebackend.dto.response.AuthResponse;
 import com.demo.ridebackend.entity.User;
+import com.demo.ridebackend.enums.Role;
 import com.demo.ridebackend.repository.UserRepository;
 import com.demo.ridebackend.security.JwtService;
 import com.demo.ridebackend.service.AuthService;
@@ -33,6 +34,10 @@ public class AuthServiceImpl implements AuthService {
             throw new RuntimeException("Phone number already exists.");
         }
 
+        if (request.getRole() == Role.ADMIN) {
+            throw new RuntimeException("Admin accounts cannot be self-registered.");
+        }
+
         User user = User.builder()
                 .name(request.getName())
                 .email(request.getEmail())
@@ -42,16 +47,8 @@ public class AuthServiceImpl implements AuthService {
                 .latitude(request.getLatitude())
                 .longitude(request.getLongitude())
                 .available(true)
-
-                // ============================================================
-                // START OF VERSION 5 CHANGES: DRIVER PREFERENCES
-                // ============================================================
-                .gender(request.getGender()) // Maps driver's gender for matching
-                .vehicleType(request.getVehicleType()) // Maps vehicle category (e.g. SEDAN)
-                // ============================================================
-                // END OF VERSION 5 CHANGES
-                // ============================================================
-
+                .gender(request.getGender())
+                .vehicleType(request.getVehicleType())
                 .build();
 
         userRepository.save(user);
@@ -84,4 +81,5 @@ public class AuthServiceImpl implements AuthService {
                 .message("Login Successful")
                 .build();
     }
+
 }
